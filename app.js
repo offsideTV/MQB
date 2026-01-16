@@ -4,12 +4,14 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 import { onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
+// --- CONTROL DE ACCESO ---
 onAuthStateChanged(window.auth, (user) => {
     if (!user) {
         window.location.href = "login.html";
     }
 });
-// --- ESTADO LOCAL PARA RENDEREADO ---
+
+// --- ESTADO LOCAL ---
 let boletas = [];
 let historial = [];
 let empleados = [];
@@ -17,7 +19,7 @@ let proveedores = [];
 let ventasDiarias = [];
 let currentFilter = 'todos';
 
-// --- UTILIDADES DE FECHA ---
+// --- UTILIDADES ---
 function getFechaOperativa() {
     const ahora = new Date();
     if (ahora.getHours() < 4) {
@@ -29,28 +31,38 @@ function getFechaOperativa() {
     return `${y}-${m}-${d}`;
 }
 
-function formatDateForDisplay(isoDate) { // isoDate → "2026-01-08"
-    if (!isoDate) return '';
+function formatDateForDisplay(isoDate) {
+    if (!isoDate) return 'N/A';
     const [y, m, d] = isoDate.split('-');
-    return `${d} - ${m} - ${y}`;
+    return `${d}/${m}/${y}`;
 }
 
 // --- INICIALIZACIÓN ---
 document.addEventListener('DOMContentLoaded', () => {
-    // Fecha actual formateada para visualización
+    // Fecha actual formateada
     const today = new Date();
     document.getElementById('current-date').innerText = today.toLocaleDateString('es-AR', { 
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
     });
 
-    // Iniciar escuchas en tiempo real
+    // Iniciar escuchas
     setupListeners();
 
+    // Evento para el botón
     const btnCerrar = document.getElementById('btn-cerrar-caja');
     if (btnCerrar) btnCerrar.onclick = handleCerrarCaja;
-});
 
-// --- ESCUCHAS EN TIEMPO REAL (FIRESTORE) ---
+    // --- NUEVO: HABILITAR ENTER EN CIERRE DE CAJA ---
+const inputMonto = document.getElementById('venta-monto');
+if (inputMonto) {
+    inputMonto.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            handleCerrarCaja();
+        }
+    });
+}
+});
+// --- ESCUCHAS FIRESTORE ---
 function setupListeners() {
     onSnapshot(collection(window.db, "empleados"), (snapshot) => {
         empleados = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -79,7 +91,7 @@ function setupListeners() {
     });
 }
 
-// --- UTILIDADES UI ---
+// --- UI HELPERS ---
 function showToast(message) {
     const container = document.getElementById('toast-container');
     if (!container) return;
@@ -108,15 +120,15 @@ function customConfirm({ title, text, okText = 'Confirmar', type = 'blue' }) {
         textEl.innerText = text; 
         btnOk.innerText = okText;
         
-        if(type === 'red') {
-            btnOk.className = "flex-1 py-3 px-4 rounded-lg font-bold text-white bg-red-500 hover:bg-red-600 transition";
-            iconEl.innerHTML = '<i class="fas fa-trash-alt text-2xl text-red-600"></i>';
-            iconEl.className = "w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-red-50";
-        } else {
-            btnOk.className = "flex-1 py-3 px-4 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 transition";
-            iconEl.innerHTML = '<i class="fas fa-question text-2xl text-blue-600"></i>';
-            iconEl.className = "w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 bg-blue-50";
-        }
+        btnOk.className = type === 'red' 
+            ? "flex-1 py-3 px-4 rounded-lg font-bold text-white bg-red-500 hover:bg-red-600 transition"
+            : "flex-1 py-3 px-4 rounded-lg font-bold text-white bg-blue-600 hover:bg-blue-700 transition";
+            
+        iconEl.innerHTML = type === 'red' 
+            ? '<i class="fas fa-trash-alt text-2xl text-red-600"></i>'
+            : '<i class="fas fa-question text-2xl text-blue-600"></i>';
+            
+        iconEl.className = `w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${type === 'red' ? 'bg-red-50' : 'bg-blue-50'}`;
 
         modal.classList.remove('hidden');
         setTimeout(() => content.classList.add('confirm-animate'), 10);
@@ -137,15 +149,14 @@ window.showSection = function(sectionId) {
     if(target) target.classList.remove('hidden');
 
     const titles = { 
-        'dashboard': 'Dashboard', 'boletas': 'Gastos del mes', 
-        'empleados': 'Personal', 'proveedores': 'Proveedores', 
-        'historial': 'Historial', 'ventas': 'Ventas diarias' 
+        'dashboard': 'Dashboard', 'boletas': 'Gastos Semanales', 
+        'empleados': 'Gestión de Personal', 'proveedores': 'Proveedores', 
+        'historial': 'Historial Semanal', 'ventas': 'Ventas Diarias' 
     };
     document.getElementById('section-title').innerText = titles[sectionId] || "Sección";
     
     document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active-link'));
-    const btns = document.querySelectorAll('.nav-btn');
-    btns.forEach(btn => {
+    document.querySelectorAll('.nav-btn').forEach(btn => {
         if(btn.getAttribute('onclick')?.includes(`'${sectionId}'`)) btn.classList.add('active-link');
     });
 };
@@ -157,7 +168,20 @@ window.logout = async function() {
 };
 
 window.openModal = function(id) { 
-    document.getElementById(id).classList.remove('hidden'); 
+    const modal = document.getElementById(id);
+    if (!modal) return;
+    
+    modal.classList.remove('hidden'); 
+
+    // Si abrimos el modal de empleados, reseteamos todo
+    if(id === 'modal-empleado') {
+        const form = document.getElementById('form-empleado');
+        form.reset(); // Borra todos los inputs visibles
+        document.getElementById('emp-index').value = ""; // Borra el ID oculto (CRUCIAL)
+        document.getElementById('modal-emp-title').innerText = "Nuevo empleado"; // Restablece el título
+    }
+
+    // Lógica existente para cargar proveedores en el select de boletas
     if(id === 'modal-boleta') {
         const selectProv = document.getElementById('b-proveedor');
         selectProv.innerHTML = '<option value="">Seleccionar Proveedor...</option><option value="Particular">Particular</option>';
@@ -169,6 +193,7 @@ window.openModal = function(id) {
         });
     }
 };
+
 window.closeModal = function(id) { 
     document.getElementById(id).classList.add('hidden'); 
 };
@@ -180,7 +205,13 @@ document.getElementById('form-empleado').onsubmit = async (e) => {
     const data = { 
         nombre: document.getElementById('emp-nombre').value, 
         puesto: document.getElementById('emp-puesto').value, 
-        sueldo: parseFloat(document.getElementById('emp-sueldo').value) 
+        sueldo: parseFloat(document.getElementById('emp-sueldo').value) || 0,
+        extras: parseFloat(document.getElementById('emp-extras').value) || 0,
+        edad: document.getElementById('emp-edad').value,
+        ingreso: document.getElementById('emp-ingreso').value,
+        tel: document.getElementById('emp-tel').value,
+        direccion: document.getElementById('emp-direccion').value,
+        vacaciones: document.getElementById('emp-vacaciones').value
     };
 
     if(id === "") {
@@ -191,7 +222,7 @@ document.getElementById('form-empleado').onsubmit = async (e) => {
     closeModal('modal-empleado');
     e.target.reset();
     document.getElementById('emp-index').value = "";
-    showToast("Personal guardado");
+    showToast("Personal actualizado");
 };
 
 function updateEmpleadosTable() {
@@ -199,47 +230,92 @@ function updateEmpleadosTable() {
     if(!table) return;
     table.innerHTML = empleados.map((emp) => `
         <tr class="hover:bg-slate-50 transition">
-            <td class="p-4 font-bold text-slate-700">${emp.nombre}</td>
-            <td class="p-4 text-slate-500">${emp.puesto}</td>
-            <td class="p-4 font-bold text-blue-600">$${emp.sueldo.toLocaleString('es-AR')}</td>
-            <td class="p-4 text-right space-x-2">
-                <button onclick="cargarSueldoComoGasto('${emp.id}')" class="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded font-bold">Cargar gasto</button>
-                <button onclick="editEmpleado('${emp.id}')" class="text-blue-600"><i class="fas fa-edit"></i></button>
-                <button onclick="deleteEmpleado('${emp.id}')" class="text-red-400"><i class="fas fa-trash"></i></button>
+            <td class="p-4">
+                <p class="font-bold text-slate-700">${emp.nombre}</p>
+                <p class="text-[10px] text-slate-400">${emp.tel || 'Sin Tel'} ${emp.edad ? `• ${emp.edad} años` : ''}</p>
+            </td>
+            <td class="p-4">
+                <p class="text-slate-500 font-medium">${emp.puesto}</p>
+                <div class="mt-1">
+                    ${emp.vacaciones ? `<p class="text-[10px] text-orange-600 font-bold"><i class="fas fa-umbrella-beach mr-1"></i> ${emp.vacaciones}</p>` : ''}
+                </div>
+            </td>
+            <td class="p-4">
+                <div class="flex flex-col">
+                    <span class="font-bold text-blue-600">$${emp.sueldo.toLocaleString('es-AR')}</span>
+                    ${emp.extras > 0 ? `<span class="text-[10px] text-green-600 font-black">+ $${emp.extras.toLocaleString('es-AR')} acumulado</span>` : ''}
+                </div>
+            </td>
+            <td class="p-4">
+                <div class="flex items-center gap-1">
+                    <input type="number" id="q-extra-${emp.id}" placeholder="$" 
+                           onkeypress="if(event.key==='Enter') sumarExtraRapido('${emp.id}')"
+                           class="w-20 p-1.5 text-xs border rounded-lg outline-none focus:border-green-500 transition">
+                    <button onclick="sumarExtraRapido('${emp.id}')" 
+                            class="bg-green-500 text-white w-7 h-7 rounded-lg hover:bg-green-600 transition flex items-center justify-center shadow-sm">
+                        <i class="fas fa-plus text-[10px]"></i>
+                    </button>
+                </div>
+            </td>
+            <td class="p-4 text-right space-x-1">
+                <button onclick="cargarSueldoComoGasto('${emp.id}')" class="text-[10px] bg-blue-100 text-blue-700 px-2 py-1.5 rounded-lg font-bold hover:bg-blue-200 transition">PAGAR</button>
+                <button onclick="editEmpleado('${emp.id}')" class="text-slate-400 hover:text-blue-600 p-1"><i class="fas fa-edit"></i></button>
+                <button onclick="deleteEmpleado('${emp.id}')" class="text-slate-300 hover:text-red-500 p-1"><i class="fas fa-trash"></i></button>
             </td>
         </tr>
-    `).join('') || '<tr><td colspan="4" class="p-8 text-center text-slate-400 italic text-sm">Sin empleados.</td></tr>';
+    `).join('') || '<tr><td colspan="5" class="p-8 text-center text-slate-400 italic text-sm">Sin personal registrado.</td></tr>';
 }
 
 window.cargarSueldoComoGasto = async function(id) {
     const emp = empleados.find(e => e.id === id);
-    if(await customConfirm({ title: 'Cargar Sueldo', text: `¿Cargar el sueldo de ${emp.nombre} como gasto?` })) {
+    const totalSueldo = emp.sueldo + (emp.extras || 0);
+
+    if(await customConfirm({ 
+        title: 'Cargar Pago', 
+        text: `¿Registrar pago de $${totalSueldo.toLocaleString('es-AR')} para ${emp.nombre}? Los extras se reiniciarán a $0.` 
+    })) {
         const hoy = new Date();
+        // Registrar como gasto pagado
         await addDoc(collection(window.db, "boletas"), {
             tipo: 'Sueldos', 
             proveedor: 'Interno', 
-            detalle: `Sueldo ${emp.nombre}`,
-            monto: emp.sueldo, 
+            detalle: `Pago ${emp.nombre} (Base + Extras)`,
+            monto: totalSueldo, 
             vencimiento: getFechaOperativa(), 
-            pagado: false,
+            pagado: true,
             mes: hoy.getMonth() + 1, 
             anio: hoy.getFullYear()
         });
-        showToast("Sueldo cargado");
+
+        // Reiniciar extras del empleado
+        await updateDoc(doc(window.db, "empleados", id), { extras: 0 });
+        showToast("Sueldo registrado y extras reiniciados");
     }
 };
 
 window.editEmpleado = function(id) {
     const emp = empleados.find(e => e.id === id);
+    if (!emp) return;
+
+    // Cambiamos el título para que el usuario sepa que está editando
+    document.getElementById('modal-emp-title').innerText = "Editar empleado"; 
+    
     document.getElementById('emp-index').value = id;
     document.getElementById('emp-nombre').value = emp.nombre;
     document.getElementById('emp-puesto').value = emp.puesto;
     document.getElementById('emp-sueldo').value = emp.sueldo;
-    openModal('modal-empleado');
+    document.getElementById('emp-extras').value = emp.extras || 0;
+    document.getElementById('emp-edad').value = emp.edad || "";
+    document.getElementById('emp-ingreso').value = emp.ingreso || "";
+    document.getElementById('emp-tel').value = emp.tel || "";
+    document.getElementById('emp-direccion').value = emp.direccion || "";
+    document.getElementById('emp-vacaciones').value = emp.vacaciones || "";
+    
+    // Abrimos el modal sin pasar por el reset de openModal
+    document.getElementById('modal-empleado').classList.remove('hidden'); 
 };
-
 window.deleteEmpleado = async function(id) {
-    if(await customConfirm({ title: 'Eliminar', text: '¿Borrar empleado?', type: 'red' })) {
+    if(await customConfirm({ title: 'Eliminar', text: '¿Borrar empleado permanentemente?', type: 'red' })) {
         await deleteDoc(doc(window.db, "empleados", id));
     }
 };
@@ -275,7 +351,27 @@ window.deleteProveedor = async function(id) {
         await deleteDoc(doc(window.db, "proveedores", id));
     }
 };
+window.sumarExtraRapido = async function(id) {
+    const input = document.getElementById(`q-extra-${id}`);
+    const montoASumar = parseFloat(input.value);
+    
+    if (!montoASumar || montoASumar <= 0) return;
 
+    const emp = empleados.find(e => e.id === id);
+    const nuevoTotalExtras = (emp.extras || 0) + montoASumar;
+
+    try {
+        await updateDoc(doc(window.db, "empleados", id), {
+            extras: nuevoTotalExtras
+        });
+        
+        input.value = ''; // Limpia el campito
+        input.blur();    // Quita el foco
+        showToast(`+$${montoASumar} extra para ${emp.nombre}`);
+    } catch (error) {
+        showToast("Error al cargar extra");
+    }
+};
 // --- GASTOS / BOLETAS ---
 window.setFilter = function(filter) {
     currentFilter = filter;
@@ -342,7 +438,7 @@ window.pagar = async function(id) {
     }
 };
 
-// --- DASHBOARD (ACTUALIZADO: SOLO VENCIMIENTOS PRÓXIMOS) ---
+// --- DASHBOARD ---
 function updateDashboard() {
     const hoy = new Date(); 
     const mesA = hoy.getMonth() + 1; 
@@ -351,71 +447,49 @@ function updateDashboard() {
     
     let stats = { vencidas: 0, porVencer: 0, pagado: 0, pendiente: 0 };
     let categorias = {};
-    let proximosVencimientos = []; // Para guardar los datos del aviso
+    let proximosVencimientos = [];
 
-    const delMes = boletas.filter(b => b.mes === mesA && b.anio === anioA);
+    const actuales = boletas; // En sistema semanal, vemos todo lo actual
     
-    delMes.forEach(b => {
+    actuales.forEach(b => {
         const diff = Math.ceil((new Date(b.vencimiento) - new Date(hoyF)) / 86400000);
-        
         if(b.pagado) {
             stats.pagado += b.monto;
         } else {
             stats.pendiente += b.monto;
-            if(diff < 0) {
-                stats.vencidas++; 
-            } else if(diff <= 7) {
+            if(diff < 0) stats.vencidas++; 
+            else if(diff <= 7) {
                 stats.porVencer++;
-                // Guardamos la info para el aviso
-                proximosVencimientos.push({
-                    proveedor: b.proveedor,
-                    monto: b.monto,
-                    dias: diff
-                });
+                proximosVencimientos.push({ proveedor: b.proveedor, monto: b.monto, dias: diff });
             }
         }
         categorias[b.tipo] = (categorias[b.tipo] || 0) + b.monto;
     });
 
-    // 1. Actualizar las tarjetas superiores (KPIs)
     const kpi = document.getElementById('kpi-cards');
     if(kpi) {
         kpi.innerHTML = `
             <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-red-500"><p class="text-slate-500 text-xs font-bold uppercase">Vencidas</p><h3 class="text-3xl font-bold text-red-600 mt-1">${stats.vencidas}</h3></div>
             <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-yellow-500"><p class="text-slate-500 text-xs font-bold uppercase">A vencer (7d)</p><h3 class="text-3xl font-bold text-yellow-600 mt-1">${stats.porVencer}</h3></div>
-            <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500"><p class="text-slate-500 text-xs font-bold uppercase">Pagado Mes</p><h3 class="text-3xl font-bold text-green-600 mt-1">$${stats.pagado.toLocaleString('es-AR')}</h3></div>
+            <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-green-500"><p class="text-slate-500 text-xs font-bold uppercase">Pagado Semana</p><h3 class="text-3xl font-bold text-green-600 mt-1">$${stats.pagado.toLocaleString('es-AR')}</h3></div>
             <div class="bg-white p-6 rounded-lg shadow-sm border-l-4 border-blue-500"><p class="text-slate-500 text-xs font-bold uppercase">Deuda Pendiente</p><h3 class="text-3xl font-bold text-blue-600 mt-1">$${stats.pendiente.toLocaleString('es-AR')}</h3></div>
         `;
     }
 
-    // 2. Actualizar el cuadro de "Aviso del Sistema" (Solo vencimientos)
     const statusEl = document.getElementById('status-message');
     if(statusEl) {
         if(proximosVencimientos.length > 0) {
-            // Ordenar para que el que vence más pronto aparezca primero
             proximosVencimientos.sort((a, b) => a.dias - b.dias);
-            
-            statusEl.innerHTML = `
-                <div class="space-y-3">
-                    ${proximosVencimientos.map(v => `
-                        <div class="flex justify-between items-center bg-slate-50 p-2 rounded border-l-2 border-yellow-400">
-                            <div>
-                                <p class="text-sm font-bold text-slate-700">${v.proveedor}</p>
-                                <p class="text-[10px] text-slate-500 italic">Monto: $${v.monto.toLocaleString('es-AR')}</p>
-                            </div>
-                            <span class="text-[10px] font-black bg-yellow-100 text-yellow-700 px-2 py-1 rounded">
-                                FALTAN ${v.dias} DÍAS
-                            </span>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
+            statusEl.innerHTML = `<div class="space-y-3">${proximosVencimientos.map(v => `
+                <div class="flex justify-between items-center bg-slate-50 p-2 rounded border-l-2 border-yellow-400">
+                    <div><p class="text-sm font-bold text-slate-700">${v.proveedor}</p><p class="text-[10px] text-slate-500 italic">$${v.monto.toLocaleString('es-AR')}</p></div>
+                    <span class="text-[10px] font-black bg-yellow-100 text-yellow-700 px-2 py-1 rounded">FALTAN ${v.dias} DÍAS</span>
+                </div>`).join('')}</div>`;
         } else {
-            statusEl.innerHTML = `<p class="text-slate-400 italic text-sm text-center py-2">No hay vencimientos próximos en los siguientes 7 días.</p>`;
+            statusEl.innerHTML = `<p class="text-slate-400 italic text-sm text-center py-2">Sin vencimientos próximos.</p>`;
         }
     }
 
-    // 3. Actualizar gráfico de categorías
     const total = stats.pagado + stats.pendiente;
     const chart = document.getElementById('category-chart');
     if(chart) {
@@ -425,29 +499,42 @@ function updateDashboard() {
     }
 }
 
-// --- VENTAS DIARIAS ---
+// --- ACTUALIZACIÓN DE VENTAS CON CÁLCULO HÍBRIDO ---
 function updateVentasUI() {
     const table = document.getElementById('table-ventas');
-    const totalMesDisplay = document.getElementById('ventas-total-mes');
-    if (!table || !totalMesDisplay) return;
+    const totalSemanaDisplay = document.getElementById('ventas-total-mes'); // El ID sigue siendo el mismo por tu HTML
+    if (!table || !totalSemanaDisplay) return;
 
+    // 1. Ordenar y mostrar las ventas de la semana actual
     const sortedVentas = [...ventasDiarias].sort((a,b) => b.fecha.localeCompare(a.fecha));
-
     table.innerHTML = sortedVentas.map((v) => `
         <tr class="hover:bg-slate-50 transition">
             <td class="p-4 font-bold text-slate-700">${formatDateForDisplay(v.fecha)}</td>
             <td class="p-4 font-bold text-blue-600">$${v.monto.toLocaleString('es-AR')}</td>
             <td class="p-4 text-right space-x-3">
-                <button onclick="editVenta('${v.id}')" class="text-blue-500 hover:text-blue-700" title="Editar"><i class="fas fa-edit"></i></button>
-                <button onclick="deleteVenta('${v.id}')" class="text-red-300 hover:text-red-500" title="Eliminar"><i class="fas fa-trash"></i></button>
+                <button onclick="editVenta('${v.id}')" class="text-blue-500 hover:text-blue-700"><i class="fas fa-edit"></i></button>
+                <button onclick="deleteVenta('${v.id}')" class="text-red-300 hover:text-red-500"><i class="fas fa-trash"></i></button>
             </td>
         </tr>
-    `).join('') || '<tr><td colspan="3" class="p-8 text-center text-slate-400 italic">No hay cierres este mes.</td></tr>';
+    `).join('') || '<tr><td colspan="3" class="p-8 text-center text-slate-400 italic">No hay registros esta semana.</td></tr>';
 
-    const total = ventasDiarias.reduce((acc, v) => acc + v.monto, 0);
-    totalMesDisplay.innerText = `$${total.toLocaleString('es-AR')}`;
+    // 2. Calcular Total de la Semana (lo que está en la tabla)
+    const totalSemana = ventasDiarias.reduce((acc, v) => acc + v.monto, 0);
+    
+    // 3. Calcular Total del Mes (Semana actual + Historial del mes vigente)
+    const mesActual = new Date().toLocaleString('es-AR', { month: 'long' });
+    const totalHistorialMes = historial
+        .filter(h => h.periodo.toLowerCase().includes(mesActual.toLowerCase()))
+        .reduce((acc, h) => acc + (h.totalVentas || 0), 0);
+    
+    const totalMesEstimado = totalSemana + totalHistorialMes;
+
+    // 4. Mostrar ambos datos en el cuadro de acumulado
+    totalSemanaDisplay.innerHTML = `
+        <span class="block text-3xl font-black">$${totalSemana.toLocaleString('es-AR')}</span>
+        <span class="block text-[10px] text-blue-400 mt-1 uppercase tracking-wider">Total del mes: $${totalMesEstimado.toLocaleString('es-AR')}</span>
+    `;
 }
-
 async function handleCerrarCaja() {
     const inputMonto = document.getElementById('venta-monto');
     const monto = parseFloat(inputMonto.value);
@@ -457,7 +544,7 @@ async function handleCerrarCaja() {
     const existe = ventasDiarias.find(v => v.fecha === hoy);
 
     if (existe) {
-        if(!(await customConfirm({ title: 'Ya registrado', text: `¿Sobrescribir el cierre de ${formatDateForDisplay(hoy)}?` }))) return;
+        if(!(await customConfirm({ title: 'Ya registrado', text: `¿Sobrescribir el cierre de hoy?` }))) return;
         await deleteDoc(doc(window.db, "ventas", existe.id));
     }
 
@@ -470,20 +557,23 @@ window.editVenta = function(id) {
     const v = ventasDiarias.find(x => x.id === id);
     document.getElementById('venta-monto').value = v.monto;
     document.getElementById('venta-monto').focus();
-    showToast("Edita el monto y vuelve a cerrar caja");
 };
 
 window.deleteVenta = async function(id) {
-    if(await customConfirm({ title: 'Eliminar', text: '¿Borrar este registro?', type: 'red' })) {
+    if(await customConfirm({ title: 'Eliminar', text: '¿Borrar registro?', type: 'red' })) {
         await deleteDoc(doc(window.db, "ventas", id));
     }
 };
 
-// --- FINALIZAR MES Y HISTORIAL ---
+// --- FINALIZAR SEMANA ---
 window.confirmarFinalizarMes = async function() {
-    if(await customConfirm({ title: 'Finalizar mes', text: 'Se archivarán los gastos pagados y ventas. Esta acción vaciará las tablas actuales.' })) {
+    if(await customConfirm({ 
+        title: 'Finalizar Semana', 
+        text: 'Se archivarán los gastos pagados y ventas. Las tablas se vaciarán para la nueva semana.' 
+    })) {
         const batch = writeBatch(window.db);
-        const periodo = new Date().toLocaleString('es-AR', { month: 'long', year: 'numeric' });
+        const hoy = new Date();
+        const periodo = "Semana del " + hoy.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
         
         const totalGastos = boletas.filter(b => b.pagado).reduce((acc, b) => acc + b.monto, 0);
         const totalVentas = ventasDiarias.reduce((acc, v) => acc + v.monto, 0);
@@ -497,16 +587,11 @@ window.confirmarFinalizarMes = async function() {
             fechaCierre: new Date().toISOString()
         });
 
-        boletas.filter(b => b.pagado).forEach(b => {
-            batch.delete(doc(window.db, "boletas", b.id));
-        });
-
-        ventasDiarias.forEach(v => {
-            batch.delete(doc(window.db, "ventas", v.id));
-        });
+        boletas.filter(b => b.pagado).forEach(b => batch.delete(doc(window.db, "boletas", b.id)));
+        ventasDiarias.forEach(v => batch.delete(doc(window.db, "ventas", v.id)));
 
         await batch.commit();
-        showToast("Mes finalizado y archivado");
+        showToast("Semana finalizada y archivada");
     }
 };
 
@@ -518,17 +603,17 @@ window.updateHistorialTable = function() {
     
     table.innerHTML = filtrado.map(h => `
         <tr class="hover:bg-slate-50 transition text-sm">
-            <td class="p-4 font-bold capitalize text-slate-700">${h.periodo}</td>
+            <td class="p-4 font-bold text-slate-700">${h.periodo}</td>
             <td class="p-4 text-slate-500 font-medium">${h.cant} boletas</td>
             <td class="p-4 font-black text-green-600">$${(h.totalVentas || 0).toLocaleString('es-AR')}</td>
             <td class="p-4 font-black text-red-600">$${(h.totalGastos || 0).toLocaleString('es-AR')}</td>
             <td class="p-4 text-right"><span class="text-[10px] bg-slate-100 px-3 py-1 rounded-full font-black text-slate-400 uppercase">Archivado</span></td>
         </tr>
-    `).join('') || '<tr><td colspan="5" class="p-12 text-center text-slate-300 italic">No hay registros.</td></tr>';
+    `).join('') || '<tr><td colspan="5" class="p-12 text-center text-slate-300 italic">No hay registros históricos.</td></tr>';
 };
 
 window.borrarHistorialCompleto = async function() {
-    if(await customConfirm({ title: 'Borrar historial', text: 'Se eliminará el historial para siempre.', type: 'red' })) {
+    if(await customConfirm({ title: 'Borrar historial', text: 'Se eliminará todo el historial permanentemente.', type: 'red' })) {
         const batch = writeBatch(window.db);
         historial.forEach(h => batch.delete(doc(window.db, "historial", h.id)));
         await batch.commit();
